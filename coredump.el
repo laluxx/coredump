@@ -42,10 +42,6 @@
 ;;   g   - rerun coredumpctl (coredump-revert)
 ;;   TAB - next field/frame
 
-;;; TODO [0/3]
-;; - [ ] Color archlinux with #1793D1 (and other distros)
-;; - [ ] copy the backtrace automatically (option)
-
 ;;; Code:
 
 (require 'ansi-color)

@@ -1,4 +1,4 @@
-;;; coredump.el --- Browse coredumpctl output with syntax highlighting -*- lexical-binding: t; -*-
+;;; coredump.el --- Browse and debug coredumps with syntax highlighting -*- lexical-binding: t; -*-
 
 ;; Author: Laluxx
 ;; Version: 0.2.0
@@ -87,7 +87,7 @@ Each string becomes a separate \"-ex CMD\" argument."
   :type 'string
   :group 'coredump)
 
-(defcustom coredump-use-other-window t
+(defcustom coredump-use-other-window nil
   "If non-nil, prefer displaying the coredump buffer in another window.
 When `coredump-revert' is called from inside a coredump buffer the
 current window is always reused, ignoring this setting."
@@ -356,9 +356,11 @@ The position is expected to be two characters before HERE, or nil."
         (if next
             (goto-char (max (point-min) (- next 2)))
           (message "coredump: already at last disasm line"))))
-     ;; Fallback: go to first frame
+     ;; Fallback: in the zone between last frame and disasm
      (t
-      (goto-char (max (point-min) (- (car frames) 2)))))))
+      (if addrs
+          (goto-char (max (point-min) (- (car addrs) 2)))
+        (goto-char (max (point-min) (- (car frames) 2))))))))
 
 (defun coredump-prev-section ()
   "Move point backward through disassembly lines then frames."
@@ -394,8 +396,9 @@ The position is expected to be two characters before HERE, or nil."
      ;; Before first frame
      ((< here (car frames))
       (message "coredump: already at beginning"))
-     ;; Fallback
-     (t (message "coredump: nothing to move to")))))
+     ;; Fallback: in the zone between last frame and disasm
+     (t
+      (goto-char (max (point-min) (- (car (last frames)) 2)))))))
 
 (defun coredump-goto-rip ()
   "Place the cursor on the > of the => current-instruction line."
@@ -566,14 +569,10 @@ and press q to kill the buffer."
   "Display BUF in an appropriate window.
 If REUSE-WINDOW is non-nil use the selected window directly.
 Otherwise honour `coredump-use-other-window'."
-  (cond
-   (reuse-window
-    (switch-to-buffer buf))
-   ((and coredump-use-other-window (> (count-windows) 1))
+  (if (or reuse-window (not coredump-use-other-window))
+      (switch-to-buffer buf)
     (display-buffer buf '((display-buffer-use-some-window)
-                          (inhibit-same-window . t))))
-   (t
-    (display-buffer buf '((display-buffer-pop-up-window))))))
+                          (inhibit-same-window . t)))))
 
 (defun coredump--run (reuse-window)
   "Populate the coredump buffer by running coredumpctl and display it.

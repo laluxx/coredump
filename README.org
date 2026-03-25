@@ -20,7 +20,7 @@ Major-mode for viewing and debugging core dumps
   ;; Name of the output buffer
   (coredump-buffer-name "*coredump*")
   ;; If t, prefer displaying the buffer in another window
-  (coredump-use-other-window t)
+  (coredump-use-other-window nil)
   ;; If t, redirect stderr to stdout so GDB output is captured
   (coredump-stderr-to-stdout t)
   ;; If t, automatically copy the stack trace to the kill ring after loading

@@ -276,16 +276,16 @@ current window is always reused, ignoring this setting."
 ;; Cursor is always placed one space before the target character
 ;; (one space before # for frames, one space before 0x for disasm lines).
 ;;
-;; n:  anywhere before #0       → one space before #0
-;;     on #0 … #(N-1)           → one space before next #
-;;     on #N (last)             → one space before first disasm address
-;;     inside disasm            → one space before next address line
-;;                                (wraps: no-op at last disasm line)
-;; p:  on first disasm line     → one space before last frame #
-;;     inside disasm            → one space before previous address line
-;;     on #0                    → point-min
-;;     on #1 … #N               → one space before previous #
-;;     before #0                → no-op
+;; n:  anywhere before #0     ->  one space before #0
+;;     on #0 … #(N-1)         ->  one space before next #
+;;     on #N (last)           ->  one space before first disasm address
+;;     inside disasm          ->  one space before next address line
+;;                                  (wraps: no-op at last disasm line)
+;; p:  on first disasm line   ->  one space before last frame #
+;;     inside disasm          ->  one space before previous address line
+;;     on #0                  ->  point-min
+;;     on #1 … #N             ->  one space before previous #
+;;     before #0              ->  no-op
 
 (defun coredump--frame-positions ()
   "Return sorted list of positions of each # on backtrace lines.
@@ -325,7 +325,7 @@ Only lines inside the Dump of assembler code block are included."
 The position is expected to be two characters before HERE, or nil."
   (cl-find-if (lambda (p) (= here (max (point-min) (- p 2)))) frames))
 
-(defun coredump-next-section ()
+(defun coredump-next-line ()
   "Move point forward through frames then disassembly lines."
   (interactive)
   (let* ((frames (coredump--frame-positions))
@@ -362,7 +362,7 @@ The position is expected to be two characters before HERE, or nil."
           (goto-char (max (point-min) (- (car addrs) 2)))
         (goto-char (max (point-min) (- (car frames) 2))))))))
 
-(defun coredump-prev-section ()
+(defun coredump-prev-line ()
   "Move point backward through disassembly lines then frames."
   (interactive)
   (let* ((frames (coredump--frame-positions))
@@ -412,9 +412,10 @@ The position is expected to be two characters before HERE, or nil."
 
 (defvar coredump-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "n")   #'coredump-next-section)
-    (define-key map (kbd "p")   #'coredump-prev-section)
-    (define-key map (kbd "TAB") #'coredump-next-section)
+    (define-key map (kbd "n")   #'coredump-next-line)
+    (define-key map (kbd "p")   #'coredump-prev-line)
+    (define-key map (kbd "TAB") #'coredump-next-line)
+    (define-key map (kbd "<backtab>") #'coredump-prev-line)
     (define-key map (kbd "r")   #'coredump-goto-rip)
     (define-key map (kbd "d")   #'coredump-debug-with-gdb)
     (define-key map (kbd "q")   #'coredump-quit)
@@ -440,23 +441,37 @@ The position is expected to be two characters before HERE, or nil."
 ;;; Commands
 
 (defun coredump-help ()
-  "Show `coredump-mode' keybindings in a split window below."
+  "Show a clean help window with TAB/n and p/backtab navigation."
   (interactive)
-  (split-window-below)
-  (describe-mode)
-  (other-window 1)
-  (delete-window (selected-window))
-  (other-window 1)
-  (goto-char (point-min))
-  (when (re-search-forward "^Key\\s-+Binding" nil t)
-    (let ((start (line-beginning-position))
-          (inhibit-read-only t))
-      (forward-line 2)
-      (while (not (or (eobp) (looking-at "^\\s-*$")))
-        (forward-line 1))
-      (narrow-to-region start (point))))
-  (goto-char (point-min))
-  (other-window 1))
+  (let* ((buf-name "*coredump-help*")
+         (help-buf (get-buffer-create buf-name))
+         (window (display-buffer-below-selected help-buf nil)))
+    (with-current-buffer help-buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert (substitute-command-keys "\\{coredump-mode-map}"))
+        (goto-char (point-min))
+        ;; Clean up headers/separators
+        (when (re-search-forward "^Key\\s-+Binding" nil t)
+          (delete-region (point-min) (line-beginning-position 3)))
+        (while (re-search-forward "^-+$" nil t)
+          (delete-region (line-beginning-position) (line-beginning-position 2)))
+
+        (set-buffer-modified-p nil)
+        (setq-local buffer-read-only t)
+        (local-set-key (kbd "TAB")       #'forward-button)
+        (local-set-key (kbd "n")         #'forward-button)
+        (local-set-key (kbd "<backtab>") #'backward-button)
+        (local-set-key (kbd "p")         #'backward-button)
+        (local-set-key (kbd "q")         #'quit-window)))
+    (select-window window)
+    (fit-window-to-buffer window)
+    (goto-char (point-min))))
+
+(defun coredump-quit ()
+  "Kill buffer and manage window."
+  (interactive)
+  (quit-window t))
 
 (defun coredump-quit ()
   "Kill the coredump buffer.
@@ -573,6 +588,36 @@ Otherwise honour `coredump-use-other-window'."
       (switch-to-buffer buf)
     (display-buffer buf '((display-buffer-use-some-window)
                           (inhibit-same-window . t)))))
+
+(defun coredump--run (reuse-window)
+  "Populate the coredump buffer asynchronously and display it."
+  (let* ((buf (get-buffer-create coredump-buffer-name))
+         (args (coredump--build-command-args)))
+    ;; Setup buffer state before process starts
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert "Loading coredump data...\n")
+        (coredump-mode)
+        (setq-local coredump--reuse-window reuse-window)))
+
+    ;; Display early so the user sees the "Loading" message
+    (coredump--display-buffer buf reuse-window)
+
+    (make-process
+     :name "coredump-process"
+     :buffer buf
+     :command args
+     :noquery t
+     :sentinel #'coredump--process-sentinel)))
+
+(defun coredump--build-command-args ()
+  "Build the command argument list for coredumpctl."
+  (let ((args (list coredump-coredumpctl-program "debug" coredump-entry)))
+    (when coredump-debugger-program
+      (push (concat "--debugger=" coredump-debugger-program) args))
+    (push (concat "--debugger-arguments=" (coredump--build-debugger-arguments)) args)
+    (nreverse args)))
 
 (defun coredump--run (reuse-window)
   "Populate the coredump buffer by running coredumpctl and display it.

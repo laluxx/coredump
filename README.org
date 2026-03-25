@@ -1,0 +1,28 @@
+#+TITLE: coredump
+#+AUTHOR: Laluxx
+
+Major-mode for viewing and debugging core dumps
+
+#+begin_src emacs-lisp
+(use-package coredump
+  :ensure t
+  :custom
+  ;; Path or name of the coredumpctl executable
+  (coredump-coredumpctl-program "coredumpctl")
+  ;; Which core entry to inspect, -1 means the most recent one
+  (coredump-entry "-1")
+  ;; Debugger passed to --debugger, nil means system default (gdb)
+  (coredump-debugger-program nil)
+  ;; Byte radius around $rip for the disassembly window
+  (coredump-asm-window 32)
+  ;; Extra -ex commands appended to the GDB batch invocation
+  (coredump-gdb-extra-commands nil)
+  ;; Name of the output buffer
+  (coredump-buffer-name "*coredump*")
+  ;; If t, prefer displaying the buffer in another window
+  (coredump-use-other-window t)
+  ;; If t, redirect stderr to stdout so GDB output is captured
+  (coredump-stderr-to-stdout t)
+  ;; If t, automatically copy the stack trace to the kill ring after loading
+  (coredump-auto-copy-backtrace nil))
+#+end_src
